@@ -367,7 +367,7 @@ package body STM32.Device is
    -- As_Port_Id --
    ----------------
 
-   function As_Port_Id (Port : I2C_Port) return I2C_Port_Id is
+   function As_Port_Id (Port : I2C_Port'Class) return I2C_Port_Id is
    begin
       if Port.Periph.all'Address = I2C1_Base then
          return I2C_Id_1;
@@ -384,7 +384,7 @@ package body STM32.Device is
    -- Enable_Clock --
    ------------------
 
-   procedure Enable_Clock (This : I2C_Port) is
+   procedure Enable_Clock (This : I2C_Port'Class) is
    begin
       Enable_Clock (As_Port_Id (This));
    end Enable_Clock;
@@ -409,7 +409,7 @@ package body STM32.Device is
    -- Reset --
    -----------
 
-   procedure Reset (This : I2C_Port) is
+   procedure Reset (This : I2C_Port'Class) is
    begin
       Reset (As_Port_Id (This));
    end Reset;
@@ -437,7 +437,7 @@ package body STM32.Device is
    -- Enable_Clock --
    ------------------
 
-   procedure Enable_Clock (This : aliased in out SPI_Port) is
+   procedure Enable_Clock (This : aliased in out SPI_Port'Class) is
    begin
       if This'Address = SPI1_Base then
          RCC_Periph.APB2ENR.SPI1EN := True;
@@ -460,7 +460,7 @@ package body STM32.Device is
    -- Reset --
    -----------
 
-   procedure Reset (This : in out SPI_Port) is
+   procedure Reset (This : in out SPI_Port'Class) is
    begin
       if This.Periph.all'Address = SPI1_Base then
          RCC_Periph.APB2RSTR.SPI1RST := True;
@@ -732,6 +732,32 @@ package body STM32.Device is
       RCC_Periph.APB2RSTR.SDIORST := True;
       RCC_Periph.APB2RSTR.SDIORST := False;
    end Reset;
+
+   ----------------------
+   -- Set_Clock_Source --
+   ----------------------
+
+   procedure Set_Clock_Source
+     (This : in out SDMMC_Controller;
+      Src  : SDIO_Clock_Source)
+   is
+      Src_Val : constant Boolean := Src = Src_Sysclk;
+   begin
+      if This.Periph.all'Address /= SDIO_Base then
+         raise Unknown_Device;
+      end if;
+
+      RCC_Periph.DCKCFGR.SDMMCSEL := Src_Val;
+
+      case Src is
+         when Src_Sysclk =>
+            STM32.SDMMC.Set_Clk_Src_Speed
+              (This, System_Clock_Frequencies.SYSCLK);
+         when Src_48Mhz =>
+            STM32.SDMMC.Set_Clk_Src_Speed
+              (This, 48_000_000);
+      end case;
+   end Set_Clock_Source;
 
    ------------------------------
    -- System_Clock_Frequencies --

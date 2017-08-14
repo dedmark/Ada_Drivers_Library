@@ -162,9 +162,9 @@ package ST7735R is
                    return UInt16;
 
    procedure Write_Raw_Pixels (LCD  : ST7735R_Screen;
-                               Data : HAL.UInt8_Array);
+                               Data : in out HAL.UInt8_Array);
    procedure Write_Raw_Pixels (LCD  : ST7735R_Screen;
-                               Data : HAL.UInt16_Array);
+                               Data : in out HAL.UInt16_Array);
 
    overriding
    function Max_Layers
@@ -280,7 +280,8 @@ private
       Column_Address_Right_Left => 1);
 
    type ST7735R_Bitmap_Buffer is new Soft_Drawing_Bitmap_Buffer with record
-      LCD : Any_ST7735R_Device := null;
+      LCD           : Any_ST7735R_Device := null;
+      Native_Source : UInt32;
    end record;
 
    overriding
@@ -308,35 +309,25 @@ private
      (System.Null_Address);
 
    overriding
-   procedure Set_Pixel
-     (Buffer  : in out ST7735R_Bitmap_Buffer;
-      Pt      : Point;
-      Value   : Bitmap_Color)
-     with Pre => Buffer.LCD /= null;
+   procedure Set_Source (Buffer : in out ST7735R_Bitmap_Buffer;
+                         Native : UInt32);
+
+   overriding
+   function Source
+     (Buffer : ST7735R_Bitmap_Buffer)
+      return UInt32;
 
    overriding
    procedure Set_Pixel
      (Buffer  : in out ST7735R_Bitmap_Buffer;
-      Pt      : Point;
-      Value   : UInt32)
+      Pt      : Point)
      with Pre => Buffer.LCD /= null;
-
 
    overriding
    procedure Set_Pixel_Blend
      (Buffer : in out ST7735R_Bitmap_Buffer;
-      Pt     : Point;
-      Value  : Bitmap_Color)
-     with Pre => Buffer.LCD /= null;
-
-
-   overriding
-   function Pixel
-     (Buffer : ST7735R_Bitmap_Buffer;
       Pt     : Point)
-      return Bitmap_Color
      with Pre => Buffer.LCD /= null;
-
 
    overriding
    function Pixel
@@ -344,7 +335,6 @@ private
       Pt     : Point)
       return UInt32
      with Pre => Buffer.LCD /= null;
-
 
    overriding
    function Buffer_Size (Buffer : ST7735R_Bitmap_Buffer) return Natural is
@@ -358,7 +348,7 @@ private
       Time : not null HAL.Time.Any_Delays)
    is limited new HAL.Framebuffer.Frame_Buffer_Display with record
       Initialized : Boolean := True;
-      Layer : aliased ST7735R_Bitmap_Buffer;
+      Layer       : aliased ST7735R_Bitmap_Buffer;
    end record;
 
 end ST7735R;

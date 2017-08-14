@@ -30,7 +30,6 @@
 ------------------------------------------------------------------------------
 
 with Ada.Unchecked_Conversion;
-with Bitmap_Color_Conversion;  use Bitmap_Color_Conversion;
 
 package body ST7735R is
 
@@ -72,8 +71,6 @@ package body ST7735R is
    pragma Unreferenced (Write_Data);
    procedure Write_Data (LCD  : ST7735R_Screen;
                          Data : HAL.UInt8_Array);
-   procedure Write_Data (LCD  : ST7735R_Screen;
-                         Data : HAL.UInt16_Array);
 
    procedure Read_Data (LCD  : ST7735R_Screen;
                         Data : out UInt16);
@@ -183,39 +180,11 @@ package body ST7735R is
    begin
       Start_Transaction (LCD);
       Set_Data_Mode (LCD);
-      for Elt of Data loop
-         LCD.Port.Transmit (SPI_Data_8b'(1 => Elt),
-                            Status);
-         if Status /= Ok then
-            --  No error handling...
-            raise Program_Error;
-         end if;
-      end loop;
-      End_Transaction (LCD);
-   end Write_Data;
-
-   ----------------
-   -- Write_Data --
-   ----------------
-
-   procedure Write_Data (LCD  : ST7735R_Screen;
-                         Data : HAL.UInt16_Array)
-   is
-      B1, B2 : UInt8;
-      Status : SPI_Status;
-   begin
-      Start_Transaction (LCD);
-      Set_Data_Mode (LCD);
-      for Elt of Data loop
-         B1 := UInt8 (Shift_Right (Elt, 8));
-         B2 := UInt8 (Elt and 16#FF#);
-         LCD.Port.Transmit (SPI_Data_8b'(B1, B2),
-                            Status);
-         if Status /= Ok then
-            --  No error handling...
-            raise Program_Error;
-         end if;
-      end loop;
+      LCD.Port.Transmit (SPI_Data_8b (Data), Status);
+      if Status /= Ok then
+         --  No error handling...
+         raise Program_Error;
+      end if;
       End_Transaction (LCD);
    end Write_Data;
 
@@ -563,7 +532,7 @@ package body ST7735R is
                         X, Y  : UInt16;
                         Color : UInt16)
    is
-      Data : constant HAL.UInt16_Array (1 .. 1) := (1 => Color);
+      Data : HAL.UInt16_Array (1 .. 1) := (1 => Color);
    begin
       Set_Address (LCD, X, X + 1, Y, Y + 1);
       Write_Raw_Pixels (LCD, Data);
@@ -584,15 +553,24 @@ package body ST7735R is
       return Ret;
    end Pixel;
 
-
    ----------------------
    -- Write_Raw_Pixels --
    ----------------------
 
    procedure Write_Raw_Pixels (LCD  : ST7735R_Screen;
-                               Data : HAL.UInt8_Array)
+                               Data : in out HAL.UInt8_Array)
    is
+      Index : Natural := Data'First + 1;
+      Tmp   : UInt8;
    begin
+      --  The ST7735R uses a different endianness than our bitmaps
+      while Index <= Data'Last loop
+         Tmp := Data (Index);
+         Data (Index) := Data (Index - 1);
+         Data (Index - 1) := Tmp;
+         Index := Index + 1;
+      end loop;
+
       Write_Command (LCD, 16#2C#);
       Write_Data (LCD, Data);
    end Write_Raw_Pixels;
@@ -602,11 +580,12 @@ package body ST7735R is
    ----------------------
 
    procedure Write_Raw_Pixels (LCD  : ST7735R_Screen;
-                               Data : HAL.UInt16_Array)
+                               Data : in out HAL.UInt16_Array)
    is
+      Data_8b : HAL.UInt8_Array (1 .. Data'Length * 2)
+        with Address => Data'Address;
    begin
-      Write_Command (LCD, 16#2C#);
-      Write_Data (LCD, Data);
+      Write_Raw_Pixels (LCD, Data_8b);
    end Write_Raw_Pixels;
 
    --------------------
@@ -787,15 +766,41 @@ package body ST7735R is
       return Display.Layer'Unchecked_Access;
    end Hidden_Buffer;
 
-   --------------------
-   -- Get_Pixel_Size --
-   --------------------
+   ----------------
+   -- Pixel_Size --
+   ----------------
 
    overriding
    function Pixel_Size
      (Display : ST7735R_Screen;
       Layer   : Positive) return Positive is (16);
 
+   ----------------
+   -- Set_Source --
+   ----------------
+
+   overriding
+   procedure Set_Source (Buffer : in out ST7735R_Bitmap_Buffer;
+                         Native : UInt32)
+   is
+   begin
+      Buffer.Native_Source := Native;
+   end Set_Source;
+
+   ------------
+   -- Source --
+   ------------
+
+   overriding
+   function Source
+     (Buffer : ST7735R_Bitmap_Buffer)
+      return UInt32
+   is
+   begin
+      return Buffer.Native_Source;
+   end Source;
+
+
    ---------------
    -- Set_Pixel --
    ---------------
@@ -803,25 +808,11 @@ package body ST7735R is
    overriding
    procedure Set_Pixel
      (Buffer  : in out ST7735R_Bitmap_Buffer;
-      Pt      : Point;
-      Value   : Bitmap_Color)
+      Pt      : Point)
    is
    begin
-      Buffer.Set_Pixel (Pt, Bitmap_Color_To_Word (RGB_565, Value));
-   end Set_Pixel;
-
-   ---------------
-   -- Set_Pixel --
-   ---------------
-
-   overriding
-   procedure Set_Pixel
-     (Buffer  : in out ST7735R_Bitmap_Buffer;
-      Pt      : Point;
-      Value   : UInt32)
-   is
-   begin
-      Buffer.LCD.Set_Pixel (UInt16 (Pt.X), UInt16 (Pt.Y), UInt16 (Value));
+      Buffer.LCD.Set_Pixel (UInt16 (Pt.X), UInt16 (Pt.Y),
+                            UInt16 (Buffer.Native_Source));
    end Set_Pixel;
 
    ---------------------
@@ -831,8 +822,7 @@ package body ST7735R is
    overriding
    procedure Set_Pixel_Blend
      (Buffer : in out ST7735R_Bitmap_Buffer;
-      Pt     : Point;
-      Value  : Bitmap_Color) renames Set_Pixel;
+      Pt     : Point) renames Set_Pixel;
 
    -----------
    -- Pixel --
@@ -842,20 +832,7 @@ package body ST7735R is
    function Pixel
      (Buffer : ST7735R_Bitmap_Buffer;
       Pt     : Point)
-      return Bitmap_Color
-   is
-   begin
-      return Word_To_Bitmap_Color (RGB_565, Buffer.Pixel (Pt));
-   end Pixel;
-
-   overriding
-   function Pixel
-     (Buffer : ST7735R_Bitmap_Buffer;
-      Pt     : Point)
       return UInt32
-   is
-   begin
-      return UInt32 (Buffer.LCD.Pixel (UInt16 (Pt.X), UInt16 (Pt.Y)));
-   end Pixel;
+   is (UInt32 (Buffer.LCD.Pixel (UInt16 (Pt.X), UInt16 (Pt.Y))));
 
 end ST7735R;
